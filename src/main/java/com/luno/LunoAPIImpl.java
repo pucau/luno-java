@@ -5,6 +5,7 @@ import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 import si.mazi.rescu.BasicAuthCredentials;
 import si.mazi.rescu.RestProxyFactory;
@@ -31,22 +32,45 @@ import com.luno.dto.trade.OrderType;
 import com.luno.dto.trade.State;
 
 public class LunoAPIImpl implements LunoAPI {
-    
+
     private final static String URI = "https://api.mybitx.com";
+
+    // Matches exactly 6 uppercase letters, e.g. XBTZAR
+    private static final Pattern PAIR_PATTERN = Pattern.compile("^[A-Z]{6}$");
+    // Bitcoin address: Base58 P2PKH/P2SH (1/3 prefix, 25-34 chars) or Bech32 (bc1, 14-74 chars)
+    private static final Pattern BTC_ADDRESS_PATTERN = Pattern.compile(
+            "^([13][a-km-zA-HJ-NP-Z1-9]{24,33}|bc1[ac-hj-np-z02-9]{6,87})$");
+
     private final LunoAuthenticated luno;
     private final BasicAuthCredentials auth;
-    
+
     public LunoAPIImpl(String key, String secret) {
         this(key, secret, URI);
     }
-    
+
     public LunoAPIImpl(String key, String secret, String uri) {
+        if (uri == null || !uri.startsWith("https://")) {
+            throw new IllegalArgumentException("URI must use HTTPS: " + uri);
+        }
         luno = RestProxyFactory.createProxy(LunoAuthenticated.class, uri);
         auth = new BasicAuthCredentials(key, secret);
     }
 
+    private static void validatePair(String pair) {
+        if (pair == null || !PAIR_PATTERN.matcher(pair).matches()) {
+            throw new IllegalArgumentException("Invalid pair format (expected 6 uppercase letters): " + pair);
+        }
+    }
+
+    private static void validateAddress(String address) {
+        if (address == null || !BTC_ADDRESS_PATTERN.matcher(address).matches()) {
+            throw new IllegalArgumentException("Invalid Bitcoin address: " + address);
+        }
+    }
+
     @Override
     public LunoTicker ticker(String pair) throws IOException, LunoException {
+        validatePair(pair);
         return luno.ticker(pair);
     }
 
@@ -57,11 +81,13 @@ public class LunoAPIImpl implements LunoAPI {
 
     @Override
     public LunoOrderBook orderbook(String pair) throws IOException, LunoException {
+        validatePair(pair);
         return luno.orderbook(pair);
     }
 
     @Override
     public LunoTrades trades(String pair, Long since) throws IOException, LunoException {
+        validatePair(pair);
         return luno.trades(pair, since);
     }
 
@@ -94,14 +120,20 @@ public class LunoAPIImpl implements LunoAPI {
     @Override
     public LunoPostOrder postLimitOrder(String pair, OrderType type, BigDecimal volume, BigDecimal price,
             String baseAccountId, String counterAccountId) throws IOException, LunoException {
-        assert type == OrderType.ASK || type == OrderType.BID : "The order type for limit order must be ASK or BID.";
+        validatePair(pair);
+        if (type != OrderType.ASK && type != OrderType.BID) {
+            throw new IllegalArgumentException("The order type for limit order must be ASK or BID.");
+        }
         return luno.postLimitOrder(this.auth, pair, type, volume, price, baseAccountId, counterAccountId);
     }
 
     @Override
     public LunoPostOrder postMarketOrder(String pair, OrderType type, BigDecimal counterVolume,
             BigDecimal baseVolume, String baseAccountId, String counterAccountId) throws IOException, LunoException {
-        assert type == OrderType.BUY || type == OrderType.SELL : "The order type for limit order must be SELL or BUY.";
+        validatePair(pair);
+        if (type != OrderType.BUY && type != OrderType.SELL) {
+            throw new IllegalArgumentException("The order type for market order must be BUY or SELL.");
+        }
         return luno.postMarketOrder(this.auth, pair, type, counterVolume, baseVolume, baseAccountId, counterAccountId);
     }
 
@@ -118,11 +150,13 @@ public class LunoAPIImpl implements LunoAPI {
     @Override
     public com.luno.dto.trade.LunoUserTrades listTrades(String pair, Long since, Integer limit) throws IOException,
             LunoException {
+        validatePair(pair);
         return luno.listTrades(this.auth, pair, since, limit);
     }
 
     @Override
     public LunoFeeInfo feeInfo(String pair) throws IOException, LunoException {
+        validatePair(pair);
         return luno.feeInfo(this.auth, pair);
     }
 
@@ -146,7 +180,9 @@ public class LunoAPIImpl implements LunoAPI {
     @Override
     public Withdrawal requestWithdrawal(String type, BigDecimal amount, String beneficiaryId)
             throws IOException, LunoException {
-        assert VALID_TYPES.contains(type) : "Valid withdrawal types are: " + VALID_TYPES;
+        if (!VALID_TYPES.contains(type)) {
+            throw new IllegalArgumentException("Valid withdrawal types are: " + VALID_TYPES);
+        }
         return luno.requestWithdrawal(this.auth, type, amount, beneficiaryId);
     }
 
@@ -163,13 +199,17 @@ public class LunoAPIImpl implements LunoAPI {
     @Override
     public LunoBoolean send(BigDecimal amount, String currency, String address, String description,
             String message) throws IOException, LunoException {
+        validateAddress(address);
         return luno.send(this.auth, amount, currency, address, description, message);
     }
 
     @Override
     public LunoQuote createQuote(OrderType type, BigDecimal baseAmount, String pair) throws IOException,
             LunoException {
-        assert type == OrderType.BUY || type == OrderType.SELL : "The type for quote must be SELL or BUY.";
+        validatePair(pair);
+        if (type != OrderType.BUY && type != OrderType.SELL) {
+            throw new IllegalArgumentException("The type for quote must be BUY or SELL.");
+        }
         return luno.createQuote(this.auth, type, baseAmount, pair);
     }
 
